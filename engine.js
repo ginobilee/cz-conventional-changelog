@@ -34,6 +34,8 @@ var filterSubject = function(subject) {
   return subject;
 };
 
+var JiraIdReg = /^[A-Z]{1,10}-\d+$/;
+
 // This can be any kind of SystemJS compatible module.
 // We use Commonjs here, but ES6 or AMD would do just
 // fine.
@@ -70,9 +72,19 @@ module.exports = function(options) {
       // collection library if you prefer.
       cz.prompt([
         {
+          type: 'input',
+          name: 'issues',
+          message: '添加Jira-id:\n',
+          validate: function(issues) {
+            return JiraIdReg.test(issues)
+              ? true
+              : '请添加格式如 FXX-323 的jira id,不要添加 # 号';
+          }
+        },
+        {
           type: 'list',
           name: 'type',
-          message: "Select the type of change that you're committing:",
+          message: '请选择commit类型:',
           choices: choices,
           default: options.defaultType
         },
@@ -80,7 +92,7 @@ module.exports = function(options) {
           type: 'input',
           name: 'scope',
           message:
-            'What is the scope of this change (e.g. component or file name): (press enter to skip)',
+            '请选择提交的影响范围 (如 component 、 file name): (确认以跳过)',
           default: options.defaultScope,
           filter: function(value) {
             return value.trim().toLowerCase();
@@ -91,23 +103,23 @@ module.exports = function(options) {
           name: 'subject',
           message: function(answers) {
             return (
-              'Write a short, imperative tense description of the change (max ' +
+              '请填写一个简短、声明式的主题描述 (不超过 ' +
               maxSummaryLength(options, answers) +
-              ' chars):\n'
+              ' 字符):\n'
             );
           },
           default: options.defaultSubject,
           validate: function(subject, answers) {
             var filteredSubject = filterSubject(subject);
             return filteredSubject.length == 0
-              ? 'subject is required'
+              ? '主题为必须字段'
               : filteredSubject.length <= maxSummaryLength(options, answers)
               ? true
-              : 'Subject length must be less than or equal to ' +
+              : '主题的长度应不大于 ' +
                 maxSummaryLength(options, answers) +
-                ' characters. Current length is ' +
+                ' 字符. 当前为 ' +
                 filteredSubject.length +
-                ' characters.';
+                ' 字符.';
           },
           transformer: function(subject, answers) {
             var filteredSubject = filterSubject(subject);
@@ -124,68 +136,39 @@ module.exports = function(options) {
         {
           type: 'input',
           name: 'body',
-          message:
-            'Provide a longer description of the change: (press enter to skip)\n',
+          message: '请填写详细的提交描述: (确认以跳过)\n',
           default: options.defaultBody
-        },
-        {
-          type: 'confirm',
-          name: 'isBreaking',
-          message: 'Are there any breaking changes?',
-          default: false
-        },
-        {
-          type: 'input',
-          name: 'breakingBody',
-          default: '-',
-          message:
-            'A BREAKING CHANGE commit requires a body. Please enter a longer description of the commit itself:\n',
-          when: function(answers) {
-            return answers.isBreaking && !answers.body;
-          },
-          validate: function(breakingBody, answers) {
-            return (
-              breakingBody.trim().length > 0 ||
-              'Body is required for BREAKING CHANGE'
-            );
-          }
-        },
-        {
-          type: 'input',
-          name: 'breaking',
-          message: 'Describe the breaking changes:\n',
-          when: function(answers) {
-            return answers.isBreaking;
-          }
-        },
-
-        {
-          type: 'confirm',
-          name: 'isIssueAffected',
-          message: 'Does this change affect any open issues?',
-          default: options.defaultIssues ? true : false
-        },
-        {
-          type: 'input',
-          name: 'issuesBody',
-          default: '-',
-          message:
-            'If issues are closed, the commit requires a body. Please enter a longer description of the commit itself:\n',
-          when: function(answers) {
-            return (
-              answers.isIssueAffected && !answers.body && !answers.breakingBody
-            );
-          }
-        },
-        {
-          type: 'input',
-          name: 'issues',
-          message: 'Add issue references (e.g. "fix #123", "re #123".):\n',
-          when: function(answers) {
-            return answers.isIssueAffected;
-          },
-          default: options.defaultIssues ? options.defaultIssues : undefined
         }
+        // {
+        //   type: 'confirm',
+        //   name: 'isBreaking',
+        //   message: 'Are there any breaking changes?',
+        //   default: false
+        // },
+        // {
+        //   type: 'input',
+        //   name: 'breakingBody',
+        //   default: '-',
+        //   message:
+        //     'A BREAKING CHANGE commit requires a body. Please enter a longer description of the commit itself:\n',
+        //   when: function(answers) {
+        //     return answers.isBreaking && !answers.body;
+        //   },
+        //   validate: function(breakingBody, answers) {
+        //     return (
+        //       breakingBody.trim().length > 0 ||
+        //       'Body is required for BREAKING CHANGE'
+        //     );
+        //   }
+        // },
+        // {
+        //   type: 'input',
+        //   name: 'breaking',
+        //   message: 'Describe the breaking changes:\n',
+        //   when: function(answers) {
+        //     return answers.isBreaking;
+        //   }
+        // },
       ]).then(function(answers) {
         var wrapOptions = {
           trim: true,
@@ -199,21 +182,25 @@ module.exports = function(options) {
         var scope = answers.scope ? '(' + answers.scope + ')' : '';
 
         // Hard limit this line in the validate
-        var head = answers.type + scope + ': ' + answers.subject;
+        var head =
+          answers.type +
+          scope +
+          ': #' +
+          answers.issues +
+          '# ' +
+          answers.subject;
 
         // Wrap these lines at options.maxLineWidth characters
         var body = answers.body ? wrap(answers.body, wrapOptions) : false;
 
         // Apply breaking change prefix, removing it if already present
-        var breaking = answers.breaking ? answers.breaking.trim() : '';
-        breaking = breaking
-          ? 'BREAKING CHANGE: ' + breaking.replace(/^BREAKING CHANGE: /, '')
-          : '';
-        breaking = breaking ? wrap(breaking, wrapOptions) : false;
+        // var breaking = answers.breaking ? answers.breaking.trim() : '';
+        // breaking = breaking
+        //   ? 'BREAKING CHANGE: ' + breaking.replace(/^BREAKING CHANGE: /, '')
+        //   : '';
+        // breaking = breaking ? wrap(breaking, wrapOptions) : false;
 
-        var issues = answers.issues ? wrap(answers.issues, wrapOptions) : false;
-
-        commit(filter([head, body, breaking, issues]).join('\n\n'));
+        commit(filter([head, body]).join('\n\n'));
       });
     }
   };
